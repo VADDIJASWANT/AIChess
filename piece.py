@@ -19,12 +19,9 @@ class Piece:
     def move(self, new_position,board):
         isValid = self.ValidateMove(self.position,new_position,board.pieces_position,board)
         old_position = self.position
-        king_under_attack = board.king_under_attack
-        isUnderCheck = False
-        if king_under_attack is not None and king_under_attack.color == self.color:
-            isUnderCheck = True
+        king = board.white_king if self.color == "white" else board.black_king
         if isValid:
-            if isUnderCheck and king_under_attack.is_under_attach(self,new_position,board):
+            if king.is_under_attach(self,new_position,board):
                 pass
             else:
                 self.isMoved = True
@@ -298,14 +295,6 @@ class Piece:
         if piece is not None and piece.color == self.color:
             return False
         
-        # Make sure no opponent piece attacking the new position
-        for piece in board.pieces:
-            if piece.color == self.color:
-                continue
-            # Check if piece is attacking the new position           
-            if piece.ValidateMove(piece.position,new_position, board.pieces_position,board):
-                return False
-
         # Check if king is castling
         if self.is_castling_move(old_position, new_position):
             return self.validate_castling(old_position, new_position, pieces_position, board)
@@ -380,8 +369,8 @@ class Piece:
         newBoard.piece_selected = board.piece_selected
         newBoard.king_under_attack = board.king_under_attack
         # Remove the piece from its old position
-        del newBoard.pieces_position[self.position]
-        newBoard.pieces.remove(self)
+        del newBoard.pieces_position[piece_moved_copy.position]
+        newBoard.pieces.remove(piece_moved_copy)
         
         # as there is no chace the validate Move return true
         existing_piece = newBoard.pieces_position.get(new_position)
@@ -409,9 +398,10 @@ class Piece:
             newBoard.pieces_position[new_position] = piece_moved_copy
             # there is a extra case of king castling
             # as we already got the movement is valid, the above two lines of code
-        piece_moved_copy.position = oldPosition
         for piece in newBoard.pieces:
             if piece.color != piece_moved_copy.color and piece.ValidateMove(piece.position,self.position, newBoard.pieces_position,newBoard):
+                piece_moved_copy.position = oldPosition
                 return True
+        piece_moved_copy.position = oldPosition
         return False
         

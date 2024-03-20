@@ -1,5 +1,5 @@
 import pygame
-
+import copy
 class Piece:
     def __init__(self,screen,color,piece_type,position):
         self.screen = screen
@@ -18,45 +18,72 @@ class Piece:
     
     def move(self, new_position,board):
         isValid = self.ValidateMove(self.position,new_position,board.pieces_position,board)
+        old_position = self.position
+        king_under_attack = board.king_under_attack
+        isUnderCheck = False
+        if king_under_attack is not None and king_under_attack.color == self.color:
+            isUnderCheck = True
         if isValid:
-            self.isMoved = True
-            # Remove the piece from its old position
-            del board.pieces_position[self.position]
-            board.pieces.remove(self)
-            
-            # as there is no chace the validate Move return true
-            existing_piece = board.pieces_position.get(new_position)
-            if existing_piece is not None:
-                # as move is valid and there is a existing piece in that new_position 
-                # then that means this pawn is capturing that piece
-                # remove that piece board and place this pawn in that position
-                board.pieces.remove(existing_piece)
-                
-            if self.piece_type == "pawn" and new_position[1] == 0 or new_position[1] == 7:
-                #promote pawn to queen
-                QueenPiece = Piece(self.screen, self.color, "queen", new_position)
-                #replace pawn with queen in pieces list and pieces_position dict
-                board.pieces.remove(self)
-                board.pieces.append(QueenPiece)
-                #update pieces_position dict
-                board.pieces_position[new_position] = QueenPiece
-                board.pieces_position.pop(self.position, None)
+            if isUnderCheck and king_under_attack.is_under_attach(self,new_position,board):
+                pass
             else:
-                #if there is a piece we are capturing we removed it
-                #if there is a promotion to queen we done it
-                # all that left is directly movement               
-                self.position = new_position
-                board.pieces.append(self)
-                board.pieces_position[new_position] = self
-            
-            #check if this piece in its new position is giving check to opponentking
-            Opponentking = board.black_king if self.color == "white" else board.white_king
-            #check if the king is under attack
-            if self.ValidateMove(self.position,new_position,board.pieces_position,board):
-                board.king_under_attack = Opponentking
-            
-            board.draw()
-            #pygame.display.flip()
+                self.isMoved = True
+                # Remove the piece from its old position
+                del board.pieces_position[self.position]
+                board.pieces.remove(self)
+                
+                # as there is no chace the validate Move return true
+                existing_piece = board.pieces_position.get(new_position)
+                if existing_piece is not None:
+                    # as move is valid and there is a existing piece in that new_position 
+                    # then that means this pawn is capturing that piece
+                    # remove that piece board and place this pawn in that position
+                    board.pieces.remove(existing_piece)
+                    
+                if self.piece_type == "pawn" and (new_position[1] == 0 or new_position[1] == 7):
+                    #promote pawn to queen
+                    QueenPiece = Piece(self.screen, self.color, "queen", new_position)
+                    #replace pawn with queen in pieces list and pieces_position dict
+                    board.pieces.remove(self)
+                    board.pieces.append(QueenPiece)
+                    #update pieces_position dict
+                    board.pieces_position[new_position] = QueenPiece
+                    board.pieces_position.pop(self.position, None)
+                else:
+                    #if there is a piece we are capturing we removed it
+                    #if there is a promotion to queen we done it
+                    # all that left is directly movement               
+                    self.position = new_position
+                    board.pieces.append(self)
+                    board.pieces_position[new_position] = self
+                    # there is a extra case of king castling
+                    # as we already got the movement is valid, the above two lines of code
+                    # will handle the movement of the king now we need to handle movement of rook
+                    if self.piece_type == "king" and self.is_castling_move(old_position,new_position):
+                        rook = None
+                        rook_new_position = None
+                        # Get rook based on castling direction
+                        if new_position[0] < old_position[0]: # Queenside
+                            rook = board.get_queenside_rook(self.color)
+                            rook_new_position = (3,rook.position[1])
+                        else: # Kingside
+                            rook = board.get_kingside_rook(self.color)
+                            rook_new_position = (5,rook.position[1])
+                        # remove the rook from board piece and pieces_position list
+                        board.pieces.remove(rook)
+                        del board.pieces_position[rook.position]
+                        rook.position = rook_new_position
+                        board.pieces_position[rook_new_position] = rook
+                        board.pieces.append(rook)
+                      
+                #check if this piece in its new position is giving check to opponentking
+                Opponentking = board.black_king if self.color == "white" else board.white_king
+                #check if the king is under attack
+                if self.ValidateMove(self.position,Opponentking.position,board.pieces_position,board):
+                    board.king_under_attack = Opponentking
+                
+                board.draw()
+                #pygame.display.flip()
             
             
     def ValidateMove(self,old_position,new_position,pieces_position,board):
@@ -97,7 +124,7 @@ class Piece:
             # Pawn can only move forward, not backwards
             return False
         
-        if diff_col > 1 or diff_row > 2:
+        if abs(diff_col) > 1 or abs(diff_row) > 2:
             # the square to which pawn is moving is not accessable to pawn
             return False
         if diff_col == 0:
@@ -259,13 +286,25 @@ class Piece:
         # Check that new position is only 1 square away 
         diff_x = abs(new_x - old_x)
         diff_y = abs(new_y - old_y)
-        if diff_x > 1 or diff_y > 1:
-            return False
+        if self.isMoved:
+            if diff_x > 1 or diff_y > 1:
+                return False
+        else:
+            if diff_x > 2 or diff_y > 1:
+                return False
 
         # Check if landing on square of same color
         piece = pieces_position.get(new_position)
         if piece is not None and piece.color == self.color:
             return False
+        
+        # Make sure no opponent piece attacking the new position
+        for piece in board.pieces:
+            if piece.color == self.color:
+                continue
+            # Check if piece is attacking the new position           
+            if piece.ValidateMove(piece.position,new_position, board.pieces_position,board):
+                return False
 
         # Check if king is castling
         if self.is_castling_move(old_position, new_position):
@@ -277,12 +316,9 @@ class Piece:
         # Castling can only happen horizontally
         if old_pos[1] != new_pos[1]:
             return False
-
+        
         # Get king's starting column
-        if self.color == "white":
-            king_start_col = 4 
-        else:
-            king_start_col = 3
+        king_start_col = 4 
         
         # Check if king is moving two squares
         if abs(old_pos[0] - new_pos[0]) == 2:
@@ -311,7 +347,7 @@ class Piece:
             rook = board.get_kingside_rook(self.color)
 
         # Make sure rook hasn't moved
-        if rook is None or rook.has_moved:
+        if rook is None or rook.isMoved:
             return False
 
         # Make sure no pieces between rook and king
@@ -320,7 +356,7 @@ class Piece:
                 return False
 
         # Make sure no opponent piece attacks empty squares
-        for piece in board.get_opponent_pieces(self.color):
+        for piece in board.pieces:
             if piece.color == self.color:
                 continue
             # Check if piece is attacking empty squares
@@ -329,3 +365,53 @@ class Piece:
                     return False
         
         return True  
+    
+    def is_under_attach(self,piece_moved_copy,new_position,board):
+        #piece_moved_copy.position = new_position
+        from board import Board
+        oldPosition = piece_moved_copy.position
+        newBoard = Board(board.screen)
+        # Copy necessary attributes from the original board
+        newBoard.pieces = board.pieces[:]
+        newBoard.pieces_position = board.pieces_position.copy()
+        newBoard.black_king = board.black_king
+        newBoard.white_king = board.white_king
+        newBoard.king_under_attack = board.king_under_attack
+        newBoard.piece_selected = board.piece_selected
+        newBoard.king_under_attack = board.king_under_attack
+        # Remove the piece from its old position
+        del newBoard.pieces_position[self.position]
+        newBoard.pieces.remove(self)
+        
+        # as there is no chace the validate Move return true
+        existing_piece = newBoard.pieces_position.get(new_position)
+        if existing_piece is not None:
+            # as move is valid and there is a existing piece in that new_position 
+            # then that means this pawn is capturing that piece
+            # remove that piece board and place this pawn in that position
+            newBoard.pieces.remove(existing_piece)
+            
+        if piece_moved_copy.piece_type == "pawn" and (new_position[1] == 0 or new_position[1] == 7):
+            #promote pawn to queen
+            QueenPiece = Piece(piece_moved_copy.screen, piece_moved_copy.color, "queen", new_position)
+            #replace pawn with queen in pieces list and pieces_position dict
+            newBoard.pieces.remove(piece_moved_copy)
+            newBoard.pieces.append(QueenPiece)
+            #update pieces_position dict
+            newBoard.pieces_position[new_position] = QueenPiece
+            newBoard.pieces_position.pop(piece_moved_copy.position, None)
+        else:
+            #if there is a piece we are capturing we removed it
+            #if there is a promotion to queen we done it
+            # all that left is directly movement               
+            piece_moved_copy.position = new_position
+            newBoard.pieces.append(piece_moved_copy)
+            newBoard.pieces_position[new_position] = piece_moved_copy
+            # there is a extra case of king castling
+            # as we already got the movement is valid, the above two lines of code
+        piece_moved_copy.position = oldPosition
+        for piece in newBoard.pieces:
+            if piece.color != piece_moved_copy.color and piece.ValidateMove(piece.position,self.position, newBoard.pieces_position,newBoard):
+                return True
+        return False
+        
